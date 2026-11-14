@@ -1,0 +1,13 @@
+import { crmAPI, crmNotification, crmURL } from './civicrm.js';
+
+async function loadContact() {
+  try {
+    const response = await crmAPI('Contact', 'get', { id: 42 });
+    crmNotification('تم جلب البيانات بنجاح', 'success', response);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+crmURL('init', '/civicrm/example?placeholder');
+console.log(crmURL('civicrm/contact/view', { reset: 1, cid: 42 }));

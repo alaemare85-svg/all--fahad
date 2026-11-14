@@ -1,0 +1,260 @@
+/**
+ * CiviCRM Modern ES Module (ES6+)
+ */
+
+let templateURLStorage = null;
+
+export const defaults = {
+  success(result, settings) {
+    const msgBox = document.querySelector(settings.msgbox);
+    if (msgBox) {
+      msgBox.classList.remove('msgnok');
+      msgBox.classList.add('msgok');
+      msgBox.innerHTML = `Saved &nbsp; <a href="#" id="closerestmsg">${settings.closetxt}</a>`;
+      msgBox.style.display = 'block';
+
+      const closeBtn = msgBox.querySelector('#closerestmsg');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          msgBox.style.display = 'none';
+        });
+      }
+    }
+    return true;
+  },
+
+  error(result, settings) {
+    const errMsg = result?.error_message || 'An error occurred';
+    const msgBox = document.querySelector(settings.msgbox);
+    if (msgBox) {
+      msgBox.classList.remove('msgok');
+      msgBox.classList.add('msgnok');
+      msgBox.textContent = errMsg;
+      msgBox.style.display = 'block';
+    } else {
+      alert(errMsg);
+    }
+    return false;
+  },
+
+  callBack(result, settings) {
+    if (result && result.is_error === 1) {
+      return settings.error(result, settings);
+    }
+    return settings.success(result, settings);
+  },
+
+  closetxt: "<div class='icon close-icon' title='Close'>[X]</div>",
+  ajaxURL: "/civicrm/ajax/rest",
+  msgbox: '#restmsg'
+};
+
+/**
+ * 1. تنفيذ طلبات الـ API باستخدام Fetch و Async/Await
+ */
+export async function crmAPI(entity, action, params = {}, options = {}) {
+  const settings = { ...defaults, ...options };
+  const payload = new URLSearchParams({
+    ...params,
+    entity,
+    action,
+    json: 1
+  });
+
+  const msgBox = document.querySelector(settings.msgbox);
+  if (msgBox) {
+    msgBox.classList.remove('msgok', 'msgnok');
+    msgBox.innerHTML = '';
+  }
+
+  try {
+    const response = await fetch(settings.ajaxURL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+      },
+      body: payload.toString()
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    settings.callBack(result, settings);
+    return result;
+  } catch (error) {
+    settings.error({ error_message: error.message }, settings);
+    throw error;
+  }
+}
+
+/**
+ * 2. الإكمال التلقائي (Autocomplete) باستخدام عنصر HTML5 <datalist>
+ */
+export function crmAutocomplete(selector, params = {}, options = {}) {
+  const input = typeof selector === 'string' ? document.querySelector(selector) : selector;
+  if (!input) return;
+
+  const queryParams = {
+    rowCount: 35,
+    json: 1,
+    entity: 'Contact',
+    action: 'getquick',
+    sequential: 1,
+    ...params
+  };
+
+  const config = {
+    field: 'name',
+    skip: ['id', 'contact_id', 'contact_type', 'contact_is_deleted', 'email_id', 'address_id', 'country_id'],
+    result: (data) => console.log(data),
+    delay: 150,
+    minChars: 1,
+    ...options
+  };
+
+  const listId = `crm-datalist-${Math.random().toString(36).substring(2, 9)}`;
+  const datalist = document.createElement('datalist');
+  datalist.id = listId;
+  document.body.appendChild(datalist);
+  input.setAttribute('list', listId);
+
+  let debounceTimer;
+  let currentRecords = [];
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const val = input.value.trim();
+
+    if (val.length < config.minChars) {
+      datalist.innerHTML = '';
+      return;
+    }
+
+    debounceTimer = setTimeout(async () => {
+      const searchParams = new URLSearchParams({
+        ...queryParams,
+        [config.field]: val
+      });
+
+      try {
+        const response = await fetch(`${defaults.ajaxURL}?${searchParams.toString()}`);
+        const data = await response.json();
+
+        datalist.innerHTML = '';
+        currentRecords = [];
+
+        if (data && data.values) {
+          Object.values(data.values).forEach((item) => {
+            delete item.data;
+            currentRecords.push(item);
+
+            const labelParts = Object.entries(item)
+              .filter(([key, value]) => !config.skip.includes(key) && value)
+              .map(([, value]) => value);
+
+            const option = document.createElement('option');
+            option.value = item.sort_name || '';
+            option.textContent = labelParts.join(' :: ');
+            datalist.appendChild(option);
+          });
+        }
+      } catch (err) {
+        console.error('Autocomplete Error:', err);
+      }
+    }, config.delay);
+  });
+
+  input.addEventListener('change', () => {
+    const selected = currentRecords.find((item) => item.sort_name === input.value);
+    if (selected) {
+      config.result(selected);
+    }
+  });
+}
+
+/**
+ * 3. نظام الإشعارات الحديث بدون مكتبات خارجية
+ */
+export function crmNotification(message, type = 'error', item = null) {
+  const existing = document.getElementById('crm-modern-toast');
+  if (existing) existing.remove();
+
+  if (message === false) return;
+
+  const toast = document.createElement('div');
+  toast.id = 'crm-modern-toast';
+  toast.textContent = message;
+  Object.assign(toast.style, {
+    position: 'fixed',
+    top: '20px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    padding: '12px 24px',
+    backgroundColor: type === 'error' ? '#d9534f' : '#5cb85c',
+    color: '#fff',
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    zIndex: '9999',
+    cursor: 'pointer',
+    fontFamily: 'sans-serif'
+  });
+
+  toast.addEventListener('click', () => toast.remove());
+  document.body.appendChild(toast);
+
+  if (item) {
+    console.log(item);
+  }
+}
+
+/**
+ * 4. بناء وتوليد الروابط (URL Builder)
+ */
+export function crmURL(p, params = {}) {
+  if (p === 'init') {
+    templateURLStorage = params;
+    return;
+  }
+
+  if (!templateURLStorage) {
+    console.warn('You need to init crmURL("init", template) first.');
+    return '';
+  }
+
+  let formatted = templateURLStorage.replace('civicrm/example', p);
+  if (typeof params === 'string') {
+    if (formatted.startsWith('/')) {
+      formatted = formatted.substring(1);
+    }
+    return formatted.replace('placeholder', params);
+  }
+
+  const queryString = new URLSearchParams(params).toString();
+  return formatted.replace('placeholder', queryString);
+}
+
+/**
+ * 5. تحديث روابط عناصر DOM الموجودة
+ */
+export function updateCrmLinks(selector, templateURL = templateURLStorage) {
+  if (!templateURL) return;
+  document.querySelectorAll(selector).forEach((anchor) => {
+    if (anchor.href) {
+      const [, query = ''] = anchor.href.split('?');
+      anchor.href = templateURL.replace('placeholder', query);
+    }
+  });
+}
+
+// تصدير افتراضي يجمع كافة الدوال في كائن واحد
+export default {
+  defaults,
+  crmAPI,
+  crmAutocomplete,
+  crmNotification,
+  crmURL,
+  updateCrmLinks
+};
